@@ -1,0 +1,51 @@
+# 这个文件用于向neo4j导入已有的rdf三元组数据，数据在neo4j安装目录的import内
+# 读取文件
+LOAD CSV WITH HEADERS FROM 'file:///病虫害-中文期刊论文基本信息' as row
+# 直接创建节点-关系-节点
+CREATE(n:JournalArticle{
+gid:row.gid,
+title:row.title,
+journal_name:row.journal_name,
+year:row.year,
+keyword:row.keyword})
+# 根据关键词来匹配节点建立关系
+MATCH(d:disease),(p:JournalArticle)where d.name in split(p.keyword,";") CREATE (n)-[:be_researched_by]->(p)
+
+#添加新的节点的方法，用gid保证避免重复
+LOAD CSV WITH HEADERS FROM 'file:///病虫害-中文期刊论文基本信息.csv' as row
+MERGE(n:JournalArticle{
+gid:row.gid
+})on create set n.title=row.title,
+n.journal_name=row.journal_name,
+n.year=row.year,
+n.keyword=row.keyword
+RETURN n
+#添加新的关系，同样用merge防止添加结点
+MATCH(n:Pest),(p:JournalArticle) where n.name in split(p.keyword,";;") MERGE(n)-[r:be_researched_by]->(p) return (n)-[r]->(p)
+
+
+# 添加叙词表node
+LOAD CSV WITH HEADERS FROM 'file:///CAT-病虫害-2634个.csv' as row
+CREATE(n:CAT{
+termid:row.termcode,
+catid:row.maincatid,
+preflabel_EN:row.EN,
+preflabel_ZH:row.ZH})
+#构建下位关系
+LOAD CSV WITH HEADERS FROM 'file:///CAT-病虫害-下位词-234组.csv' as row
+match(n:CAT{termid:row.termcode}),(m:CAT{termid:row.termcode_alt})
+create (n)-[:superordinate_of]->(m)
+# 添加别名属性
+LOAD CSV WITH HEADERS FROM 'file:///CAT-病虫害-同义词-314组.csv' as row
+merge(n:CAT{termid:row.termcode})
+set n.altlabel = row.AltLabel
+
+# 给disease节点附上gid和othername
+LOAD CSV WITH HEADERS FROM 'file:///output.csv' as row
+match(n:Disease{
+name:row.name
+}) set n.gid = row.pid,
+n.altlabel = row.othername
+
+# 建立disease和CAT间的关系
+optional match (n:Disease),(m:CAT) where n.name = m.preflabel_ZH merge (n)-[r:same_as]->(m)
